@@ -1,0 +1,113 @@
+#!/usr/bin/perl
+
+use FindBin;
+use lib "$FindBin::Bin/mojo/lib";
+
+use Mojolicious::Lite;
+use Mojo::ByteStream;
+
+@ARGV = qw/daemon/ unless @ARGV;
+
+my $players = {};
+
+my $arena = [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 1, 0, 1, 1, 1, 0, 1],
+    [1, 0, 1, 0, 0, 0, 0, 1, 0, 1],
+    [1, 0, 0, 0, 0, 1, 0, 1, 0, 1],
+    [1, 0, 1, 1, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 1, 0, 1, 1, 1, 0, 1],
+    [1, 1, 0, 1, 0, 0, 0, 1, 0, 1],
+    [1, 0, 0, 1, 0, 1, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+];
+
+get '/' => 'index';
+
+websocket '/' => sub {
+    my $self = shift;
+    my $tx = $self->tx;
+
+    my $cid = "$tx";
+    $players->{$cid}->{tx} = $tx;
+
+    _send_message($self, arena => $arena);
+};
+
+print "Remember, you need to also run 'sudo perl mojo/examples/flash-policy-server.pl' as root for this to work...\n";
+
+app->start;
+
+sub _message_to_json {
+    my %message = @_;
+
+    foreach my $key (keys %message) {
+        $message{$key} = Mojo::ByteStream->new($message{$key})->xml_escape;
+    }
+
+    my $json = Mojo::JSON->new;
+    return $json->encode({%message});
+
+}
+
+sub _send_message {
+    my $self = shift;
+
+    $self->send_message(_message_to_json(@_));
+}
+
+sub _send_message_broadcast {
+    my $self = shift;
+
+    my $message = _message_to_json(@_);
+
+    foreach my $cid (keys %$players) {
+        $players->{$cid}->{tx}->send_message($message);
+    }
+}
+
+1;
+
+__DATA__
+
+@@ index.html.ep
+% my $url = $self->req->url->to_abs->scheme($self->req->is_secure ? 'wss' : 'ws')->path('/');
+<!doctype html><html>
+    <head>
+        <title>Mojomber</title>
+        <meta charset="utf-8" />
+        <script type="text/javascript" src="/jquery.min.js"></script>
+        <script type="text/javascript" src="/jquery.json.min.js"></script>
+        <script type="text/javascript" src="/mojomber.js"></script>
+        <script type="text/javascript">
+            // Only load the flash fallback when needed
+            if (!('WebSocket' in window)) {
+                document.write([
+                    '<scr'+'ipt type="text/javascript" src="/web-socket-js/swfobject.js"></scr'+'ipt>',
+                    '<scr'+'ipt type="text/javascript" src="/web-socket-js/FABridge.js"></scr'+'ipt>',
+                    '<scr'+'ipt type="text/javascript" src="/web-socket-js/web_socket.js"></scr'+'ipt>'
+                ].join(''));
+            }
+        </script>
+        <script type="text/javascript">
+            if (WebSocket.__initialize) {
+                // Set URL of your WebSocketMain.swf here:
+                WebSocket.__swfLocation = 'web-socket-js/WebSocketMain.swf';
+            }
+
+            $(document).ready(function() {
+                $('#content').mojomber({"url":"<%= $url %>"});
+            });
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <table border="0" height="100%" style="margin:auto">
+            <tr><td style="vertical-align:middle">
+                <div id="content"></div>
+            </td></tr>
+            </table>
+        </div>
+    </body>
+</html>
