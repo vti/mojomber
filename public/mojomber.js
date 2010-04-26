@@ -98,7 +98,7 @@
                 // Redraw other players
                 for (var id in mojomber.players) {
                     if (mojomber.players.hasOwnProperty(id) && id != player.id) {
-                        var p = mojomber.players[id];
+                        var p = mojomber.getPlayer(id);
                         if (p.alive) {
                             var x = p.col * cellsize;
                             var y = p.row * cellsize;
@@ -303,7 +303,7 @@
 
                     mojomber.init();
 
-                    $(document).bind('keypress', function(e) {
+                    $(document).keypress(function(e) {
                         var player = mojomber.getPlayer();
 
                         // Ignore player when he is dead
