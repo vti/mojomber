@@ -1,20 +1,32 @@
 (function($){
     $.fn.extend({
-        mojomber: function(options) {
+        mojomber: function(o) {
             var mojomber = this;
 
             var cellsize = 30;
-            var canvas = null;
-            var context = null;
-            var arena;
+            var canvas   = null;
+            var context  = null;
+            var arena    = [];
+            var i;
+            var images = {};
 
-            this.player_id = null;
+            this.playerId = null;
             this.players = {};
 
-            var defaults = {
-            }
+            var defaults = {};
 
-            var options = $.extend(defaults, options);
+            var options = $.extend(defaults, o);
+
+            this.preloadImages = function(hash) {
+                //console.log('Preload images');
+                for (var i = 0; i < arguments.length; i += 2) {
+                    //console.log('Preloading ' + arguments[i] + arguments[i + 1]);
+                    jQuery("<img>").attr("src", arguments[i + 1]);
+                    var img = new Image();
+                    img.src = arguments[i + 1];
+                    images[arguments[i]] = img;
+                }
+            };
 
             this.displayMessage = function (msg) {
                 $(this).html(msg);
@@ -25,44 +37,53 @@
                 var mrow = mojomber.arena.length;
                 callback(row, col);
 
-                for (var i = 1; i < radius; i++) {
+                for (i = 1; i < radius; i++) {
                     if (row + i < mrow) {
-                        if (mojomber.arena[row + i][col])
+                        if (mojomber.arena[row + i][col]) {
                             break;
+                        }
 
                         callback(row + i, col);
                     }
                 }
 
-                for (var i = 1; i < radius; i++) {
+                for (i = 1; i < radius; i++) {
                     if (row - i > 0) {
-                        if (mojomber.arena[row - i][col])
+                        if (mojomber.arena[row - i][col]) {
                             break;
+                        }
 
                         callback(row - i, col);
                     }
                 }
 
-                for (var i = 1; i < radius; i++) {
+                for (i = 1; i < radius; i++) {
                     if (col + i < mcol) {
-                        if (mojomber.arena[row][col + i])
+                        if (mojomber.arena[row][col + i]) {
                             break;
+                        }
 
                         callback(row, col + i);
                     }
                 }
 
-                for (var i = 1; i < radius; i++) {
+                for (i = 1; i < radius; i++) {
                     if (col - i > 0) {
-                        if (mojomber.arena[row][col - i])
+                        if (mojomber.arena[row][col - i]) {
                             break;
+                        }
 
                         callback(row, col - i);
                     }
                 }
-            }
+            };
+
+            this.redrawExplosion = function(row, col) {
+                context.drawImage(images['explosion'], col * cellsize, row * cellsize, 27, 30);
+            };
 
             this.redraw = function() {
+                //console.log('redraw1');
 
                 // Redraw arena
                 for (var i = 0; i < mojomber.arena.length; i++) {
@@ -73,6 +94,7 @@
                     }
                 }
 
+                //console.log('redraw2');
                 // Redraw bombs
                 for (var id in mojomber.players) {
                     if (mojomber.players.hasOwnProperty(id)) {
@@ -82,17 +104,16 @@
                             var x = bomb.col * cellsize;
                             var y = bomb.row * cellsize;
                             if (bomb.exploded) {
-                                mojomber.walkArena(bomb.row, bomb.col, 3, function(row, col) {
-                                    context.drawImage(bomb.imgExplosion, col * cellsize, row * cellsize, 27, 30);
-                                        });
+                                mojomber.walkArena(bomb.row, bomb.col, 3, mojomber.redrawExplosion);
                             }
                             else {
-                                context.drawImage(bomb.img, x, y, 30, 23);
+                                context.drawImage(images['bomb'], x, y, 30, 23);
                             }
                         }
                     }
                 }
 
+                //console.log('redraw3');
                 var player = mojomber.getPlayer();
 
                 // Redraw other players
@@ -102,17 +123,22 @@
                         if (p.alive) {
                             var x = p.col * cellsize;
                             var y = p.row * cellsize;
-                            context.drawImage(p.img, x, y, 26, 30);
+                            context.drawImage(images['enemy'], x, y, 26, 30);
                         }
                     }
                 }
 
+                //console.log('Trying to redraw the player');
+                player = mojomber.getPlayer();
                 // Redraw our player so it stays always on top
                 if (player && player.alive) {
+                    //console.log('Redraw player');
                     var x = player.col * cellsize;
                     var y = player.row * cellsize;
-                    context.drawImage(player.img, x, y, 26, 30);
+                    context.drawImage(images['player'], x, y, 26, 30);
                 }
+
+                //console.log('Redraw is finished');
             };
 
             this.clearExplosions = function() {
@@ -169,12 +195,14 @@
 
                     var toplist = [];
                     for (var id in mojomber.players) {
-                        var player = mojomber.players[id];
-                        toplist.push({"nick":player.nick,"frags":player.frags});
+                        if (mojomber.players.hasOwnProperty(id)) {
+                            var player = mojomber.players[id];
+                            toplist.push({"nick":player.nick,"frags":player.frags});
+                        }
                     }
 
                     if (toplist.length) {
-                    //toplist.sort(function(a, b) {return a.frags - b.frags});
+                    toplist.sort(function(a, b) {return b.frags - a.frags});
 
                         top.append('<h3>Top List</h3>');
                         var list = '<ol>';
@@ -195,9 +223,10 @@
                         top.append(list);
                     }
                 }
-            }
+            };
 
             this.init = function() {
+                //console.log('init');
             };
 
             function Player(options) {
@@ -214,20 +243,16 @@
 
                 this.bomb = null;
 
-                this.img = new Image();
                 if (options.enemy) {
-                    this.img.src = '/enemy.png';
+                    this.img = 'enemy';
                 }
                 else {
-                    this.img.src = '/player.png';
+                    this.img = 'player';
                 }
 
                 this.setPos = function(pos) {
                     player.row = pos[0];
                     player.col = pos[1];
-                };
-
-                this.hide = function() {
                 };
 
                 this.move = function(direction) {
@@ -246,6 +271,8 @@
                         case "right":
                             col++;
                             break;
+                        default:
+                            break;
                     }
 
                     if (!mojomber.arena[row][col]) {
@@ -253,7 +280,10 @@
                         player.col = col;
 
                         player.updated = true;
+                        return true;
                     }
+
+                    return false;
                 };
 
                 this.mine = function() {
@@ -268,12 +298,6 @@
 
                 this.exploded = false;
 
-                this.img = new Image();
-                this.img.src = '/bomb.png';
-
-                this.imgExplosion = new Image();
-                this.imgExplosion.src = '/explosion.png';
-
                 var player = mojomber.getPlayer(id);
 
                 this.row = player.row;
@@ -282,12 +306,17 @@
                 this.explode = function() {
                     bomb.exploded = true;
                 };
-
-                //setTimeout(this.explode, 1000);
             }
 
             return this.each(function() {
                 var o = options;
+
+                mojomber.preloadImages(
+                    'player', '/player.png',
+                    'enemy', '/enemy.png',
+                    'bomb', '/bomb.png',
+                    'explosion', '/explosion.png'
+                );
 
                 mojomber.displayMessage('Connecting...');
 
@@ -303,40 +332,52 @@
 
                     mojomber.init();
 
+                    //console.log('Keypress initialization');
                     $(document).keypress(function(e) {
+                        //console.log('Key pressed');
                         var player = mojomber.getPlayer();
 
                         // Ignore player when he is dead
-                        if (!player.alive)
+                        if (!player.alive) {
                             return false;
+                        }
 
                         var code = e.keyCode ? e.keyCode : e.which;
-                        var id = player.id;
-                        if (code == 37) {
-                            ws.send($.toJSON({"type" : "move", "direction" : "left"}));
-                            mojomber.getPlayer().move("left");
+                        if (code == 37 || code == 65) {
+                            if (mojomber.getPlayer().move("left")) {
+                                ws.send($.toJSON({"type" : "move", "direction" : "left"}));
+                                mojomber.redraw();
+                            }
                         }
-                        else if (code == 38) {
-                            ws.send($.toJSON({"type" : "move", "direction" : "up"}));
-                            mojomber.getPlayer().move("up");
+                        else if (code == 38 || code == 87) {
+                            if (mojomber.getPlayer().move("up")) {
+                                ws.send($.toJSON({"type" : "move", "direction" : "up"}));
+                                mojomber.redraw();
+                            }
                         }
-                        else if (code == 39) {
-                            ws.send($.toJSON({"type" : "move", "direction" : "right"}));
-                            mojomber.getPlayer().move("right");
+                        else if (code == 39 || code == 68) {
+                            if (mojomber.getPlayer().move("right")) {
+                                ws.send($.toJSON({"type" : "move", "direction" : "right"}));
+                                mojomber.redraw();
+                            }
                         }
-                        else if (code == 40) {
-                            ws.send($.toJSON({"type" : "move", "direction" : "down"}));
-                            mojomber.getPlayer().move("down");
+                        else if (code == 40 || code == 83) {
+                            if (mojomber.getPlayer().move("down")) {
+                                ws.send($.toJSON({"type" : "move", "direction" : "down"}));
+                                mojomber.redraw();
+                            }
                         }
                         else if (code == 32) {
                             var player = mojomber.getPlayer();
                             if (!player.bomb) {
                                 ws.send($.toJSON({"type" : "bomb"}));
                                 player.mine();
+                                mojomber.redraw();
                             }
                         }
-
-                        mojomber.redraw();
+                        else {
+                            return;
+                        }
 
                         return false;
                     });
@@ -346,54 +387,63 @@
                     var data = $.evalJSON(e.data);
                     var type = data.type;
 
+                    //console.log('Message received');
+
                     if (type == 'drawarena') {
+                        //console.log('Draw arena');
                         mojomber.drawarena(data.arena);
                         mojomber.redraw();
                     }
                     else if (type == 'initplayers') {
+                        //console.log('Init players');
                         var players = data.players;
-                        for (var i = 0; i < players.length; i++) {
+                        for (i = 0; i < players.length; i++) {
                             var player = players[i];
                             mojomber.addPlayer(new Player({
-                                    "id" : player.id,
-                                    "enemy" : true,
-                                    "nick" : player.nick,
-                                    "frags" : player.frags,
-                                    "pos" : player.pos
-                                    }));
+                                "id" : player.id,
+                                "enemy" : true,
+                                "nick" : player.nick,
+                                "frags" : player.frags,
+                                "pos" : player.pos
+                            }));
                         }
                         mojomber.updatetop();
                         mojomber.redraw();
                     }
                     else if (type == 'new_player') {
+                        //console.log('New player connected');
                         var player = new Player({
-                                "id" : data.id,
-                                "enemy" : true,
-                                "pos": data.pos,
-                                "nick" : data.nick
-                                });
+                            "id" : data.id,
+                            "enemy" : true,
+                            "pos": data.pos,
+                            "nick" : data.nick
+                        });
                         mojomber.addPlayer(player);
                         mojomber.updatetop();
                         mojomber.redraw();
                     }
                     else if (type == 'old_player') {
+                        //console.log('Player disconnected');
                         delete mojomber.players[data.id];
                         mojomber.updatetop();
                         mojomber.redraw();
                     }
                     else if (type == 'player') {
+                        //console.log('Received player information');
                         var player = new Player({
-                                "id" : data.id,
-                                "pos": data.pos,
-                                "nick" : data.nick
-                                });
+                            "id" : data.id,
+                            "pos": data.pos,
+                            "nick" : data.nick
+                        });
+                        //console.log(player);
                         mojomber.playerId = player.id;
                         mojomber.addPlayer(player);
                         mojomber.redraw();
                         mojomber.updatetop();
                     }
                     else if (type == 'alive') {
-                        for (var i = 0; i < data.players.length; i++) {
+                        //console.log('Bring players to live');
+                        for (i = 0; i < data.players.length; i++) {
                             var player = mojomber.getPlayer(data.players[i].id);
                             player.setPos(data.players[i].pos);
                             player.alive = true;
@@ -401,28 +451,32 @@
                         mojomber.redraw();
                     }
                     else if (type == 'die') {
-                        for (var i = 0; i < data.players.length; i++) {
+                        //console.log('Kill players');
+                        for (i = 0; i < data.players.length; i++) {
                             mojomber.getPlayer(data.players[i]).alive = false;
                         }
 
                         mojomber.redraw();
                     }
                     else if (type == 'frags') {
+                        //console.log('Update player frags');
                         var player = mojomber.getPlayer(data.id);
                         player.frags = data.frags;
                         mojomber.updatetop();
                     }
                     else if (type == 'move') {
-                        mojomber.getPlayer(data.id).move(data.direction)
+                        //console.log('Player moved');
+                        mojomber.getPlayer(data.id).move(data.direction);
                         mojomber.redraw();
                     }
                     else if (type == 'bomb') {
-                        console.log('BOMB!');
+                        //console.log('Player set up a bomb');
                         var player = mojomber.getPlayer(data.id);
                         player.bomb = new Bomb(data.id);
                         mojomber.redraw();
                     }
                     else if (type == 'explode') {
+                        //console.log('Bomb explosion');
                         var player = mojomber.getPlayer(data.id);
                         player.bomb.explode();
                         setTimeout(mojomber.clearExplosions, 1000);
@@ -433,7 +487,7 @@
                 ws.onclose = function() {
                     $('#top').html('');
                     mojomber.displayMessage('Disconnected. <a href="/">Reconnect</a>');
-                }
+                };
             });
         }
     });
