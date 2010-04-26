@@ -336,8 +336,11 @@ sub _send_message_to_other {
     foreach my $cid (keys %$players) {
         next if $cid eq $id;
 
-        if ($players->{$cid}) {
+        if ($players->{$cid} && $players->{$cid}->{tx}) {
             $players->{$cid}->{tx}->send_message($message);
+        }
+        else {
+            delete $players->{$cid};
         }
     }
 }
