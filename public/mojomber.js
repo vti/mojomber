@@ -333,7 +333,7 @@
                     mojomber.init();
 
                     //console.log('Keypress initialization');
-                    $(document).keypress(function(e) {
+                    $(document).keydown(function(e) {
                         //console.log('Key pressed');
                         var player = mojomber.getPlayer();
 
