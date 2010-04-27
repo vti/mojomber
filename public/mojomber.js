@@ -13,6 +13,8 @@
             this.playerId = null;
             this.players = {};
 
+            this.bombs = {};
+
             var defaults = {};
 
             var options = $.extend(defaults, o);
@@ -96,10 +98,9 @@
 
                 //console.log('redraw2');
                 // Redraw bombs
-                for (var id in mojomber.players) {
-                    if (mojomber.players.hasOwnProperty(id)) {
-                        var player = mojomber.getPlayer(id);
-                        var bomb = player.bomb;
+                for (var id in mojomber.bombs) {
+                    if (mojomber.bombs.hasOwnProperty(id)) {
+                        var bomb = mojomber.getBomb(id);
                         if (bomb) {
                             var x = bomb.col * cellsize;
                             var y = bomb.row * cellsize;
@@ -142,12 +143,17 @@
             };
 
             this.clearExplosions = function() {
-                for (var id in mojomber.players) {
-                    if (mojomber.players.hasOwnProperty(id)) {
-                        var player = mojomber.getPlayer(id);
+                for (var id in mojomber.bombs) {
+                    if (mojomber.bombs.hasOwnProperty(id)) {
+                        var bomb = mojomber.getBomb(id);
 
-                        if (player.bomb && player.bomb.exploded) {
-                            player.bomb = null;
+                        if (bomb.exploded) {
+                            delete mojomber.bombs[id];
+
+                            var player = mojomber.getPlayer(id);
+                            if (player) {
+                                player.bomb = 0;
+                            }
                         }
                     }
                 }
@@ -165,6 +171,16 @@
                 }
 
                 return mojomber.players[mojomber.playerId];
+            };
+
+            this.addBomb = function(bomb) {
+                mojomber.bombs[bomb.id] = bomb;
+            };
+
+            this.getBomb = function(id) {
+                if (id) {
+                    return mojomber.bombs[id];
+                }
             };
 
             this.drawarena = function(arena) {
@@ -241,7 +257,7 @@
                 this.nick = options.nick || '';
                 this.frags = options.frags || 0;
 
-                this.bomb = null;
+                this.bomb = false;
 
                 if (options.enemy) {
                     this.img = 'enemy';
@@ -275,33 +291,32 @@
                             break;
                     }
 
-                    if (!mojomber.arena[row][col]) {
-                        player.row = row;
-                        player.col = col;
-
-                        player.updated = true;
-                        return true;
-                    }
-
-                    return false;
+                    player.row = row;
+                    player.col = col;
                 };
 
                 this.mine = function() {
                     if (!player.bomb) {
-                        player.bomb = new Bomb(player.id);
+                        player.bomb = true;
+                        mojomber.bombs[player.id] = new Bomb({
+                            "id" : player.id,
+                            "pos" : [player.row, player.col]
+                        });
                     }
                 };
             }
 
-            function Bomb(id) {
+            function Bomb(options) {
                 var bomb = this;
+
+                //console.log(options);
 
                 this.exploded = false;
 
-                var player = mojomber.getPlayer(id);
+                this.id = options.id;
 
-                this.row = player.row;
-                this.col = player.col;
+                this.row = options.pos[0];
+                this.col = options.pos[1];
 
                 this.explode = function() {
                     bomb.exploded = true;
@@ -344,28 +359,16 @@
 
                         var code = e.keyCode ? e.keyCode : e.which;
                         if (code == 37 || code == 65) {
-                            if (mojomber.getPlayer().move("left")) {
-                                ws.send($.toJSON({"type" : "move", "direction" : "left"}));
-                                mojomber.redraw();
-                            }
+                            ws.send($.toJSON({"type" : "move", "direction" : "left"}));
                         }
                         else if (code == 38 || code == 87) {
-                            if (mojomber.getPlayer().move("up")) {
-                                ws.send($.toJSON({"type" : "move", "direction" : "up"}));
-                                mojomber.redraw();
-                            }
+                            ws.send($.toJSON({"type" : "move", "direction" : "up"}));
                         }
                         else if (code == 39 || code == 68) {
-                            if (mojomber.getPlayer().move("right")) {
-                                ws.send($.toJSON({"type" : "move", "direction" : "right"}));
-                                mojomber.redraw();
-                            }
+                            ws.send($.toJSON({"type" : "move", "direction" : "right"}));
                         }
                         else if (code == 40 || code == 83) {
-                            if (mojomber.getPlayer().move("down")) {
-                                ws.send($.toJSON({"type" : "move", "direction" : "down"}));
-                                mojomber.redraw();
-                            }
+                            ws.send($.toJSON({"type" : "move", "direction" : "down"}));
                         }
                         else if (code == 32) {
                             var player = mojomber.getPlayer();
@@ -408,6 +411,17 @@
                             }));
                         }
                         mojomber.updatetop();
+                        mojomber.redraw();
+                    }
+                    else if (type == 'initbombs') {
+                        console.log('initbombs');
+                        for (i = 0; i < data.bombs.length; i++) {
+                            var bomb = data.bombs[i];
+                            mojomber.addBomb(new Bomb({
+                                "id" : bomb.id,
+                                "pos" : bomb.pos
+                            }));
+                        }
                         mojomber.redraw();
                     }
                     else if (type == 'new_player') {
@@ -471,16 +485,20 @@
                     }
                     else if (type == 'bomb') {
                         //console.log('Player set up a bomb');
-                        var player = mojomber.getPlayer(data.id);
-                        player.bomb = new Bomb(data.id);
+                        mojomber.addBomb(new Bomb({
+                            "id" : data.id,
+                            "pos" : data.pos
+                        }));
                         mojomber.redraw();
                     }
                     else if (type == 'explode') {
                         //console.log('Bomb explosion');
-                        var player = mojomber.getPlayer(data.id);
-                        player.bomb.explode();
-                        setTimeout(mojomber.clearExplosions, 1000);
-                        mojomber.redraw();
+                        var bomb = mojomber.getBomb(data.id);
+                        if (bomb) {
+                            bomb.explode();
+                            setTimeout(mojomber.clearExplosions, 1000);
+                            mojomber.redraw();
+                        }
                     }
                 };
 

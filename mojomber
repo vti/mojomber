@@ -10,9 +10,10 @@ use Mojo::IOLoop;
 
 my $ioloop = Mojo::IOLoop->singleton;
 
-@ARGV = qw/daemon/ unless @ARGV;
+#@ARGV = qw/daemon/ unless @ARGV;
 
-my $players = {};
+my $PLAYERS = {};
+my $BOMBS = {};
 
 my $arena = [
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -34,9 +35,9 @@ websocket '/' => sub {
     app->log->debug('Player connected');
 
     my $cid = _get_id($self);
-    $players->{$cid}->{tx} = $tx;
+    $PLAYERS->{$cid}->{tx} = $tx;
 
-    my $player = $players->{$cid};
+    my $player = $PLAYERS->{$cid};
 
     $player->{nick}  = 'Bomber' . int(rand(10000));
     $player->{pos}   = _get_random_pos();
@@ -51,6 +52,9 @@ websocket '/' => sub {
     app->log->debug('Send other players info');
     my $other_players = [grep { $_->{id} ne $cid } @{_get_players()}];
     _send_message($self, type => 'initplayers', players => $other_players);
+
+    app->log->debug('Send bombs');
+    _send_message($self, type => 'initbombs', bombs => _get_bombs());
 
     app->log->debug('Notify other players about a new player');
     _send_message_to_other(
@@ -69,6 +73,7 @@ websocket '/' => sub {
             return unless $message || $json->error;
 
             my $type = $message->{type};
+            return unless $type;
 
             if ($type eq 'move') {
                 _handle_move($self, $message);
@@ -84,7 +89,7 @@ websocket '/' => sub {
             _send_message_to_other($self, type => 'old_player', id => $cid);
 
             app->log->debug('Player disconnected');
-            delete $players->{$cid};
+            delete $PLAYERS->{$cid};
         }
     );
 };
@@ -100,7 +105,7 @@ sub _handle_move {
 
     return unless $id && $direction;
 
-    my $player = $players->{$id};
+    my $player = $PLAYERS->{$id};
 
     my $row = $player->{pos}->[0];
     my $col = $player->{pos}->[1];
@@ -118,16 +123,23 @@ sub _handle_move {
         $col++;
     }
 
-    unless ($arena->[$row]->[$col]) {
-        $player->{pos}->[0] = $row;
-        $player->{pos}->[1] = $col;
-        _send_message_to_other(
-            $self,
-            type      => 'move',
-            id        => $id,
-            direction => $direction
-        );
+    # Can't go through the wall
+    return if $arena->[$row]->[$col];
+
+    # Can't go through the bomb
+    foreach my $id (keys %$BOMBS) {
+        my ($r, $c) = @{$BOMBS->{$id}->{pos}};
+        return if $row == $r && $col == $c;
     }
+
+    $player->{pos}->[0] = $row;
+    $player->{pos}->[1] = $col;
+    _send_message_to_all(
+        $self,
+        type      => 'move',
+        id        => $id,
+        direction => $direction
+    );
 }
 
 sub _get_id {
@@ -143,24 +155,33 @@ sub _handle_bomb {
 
     my $id = _get_id($self);
 
-    my $player = $players->{$id};
+    my $player = $PLAYERS->{$id};
 
     if (!$player->{bomb}) {
         app->log->debug('Player set up a bomb');
 
-        $player->{bomb} = {pos => [@{$player->{pos}}]};
+        $player->{bomb} = 1;
+        my $bomb = $BOMBS->{$id} = {pos => [@{$player->{pos}}]};
 
         _send_message_to_other(
             $self,
             type => 'bomb',
-            id   => $id
+            id   => $id,
+            pos  => $bomb->{pos}
         );
 
         $ioloop->timer(
             2,
             sub {
-                my $bomb = delete $player->{bomb};
+                my $player = $PLAYERS->{$id};
+                my $bomb = delete $BOMBS->{$id};
 
+                # If we are still connected
+                if ($player) {
+                    $player->{bomb} = 0;
+                }
+
+                # Get bomb position
                 my ($row, $col) = @{$bomb->{pos}};
 
                 my @dead;
@@ -170,35 +191,39 @@ sub _handle_bomb {
                     sub {
                         my ($row, $col) = @_;
 
-                        foreach my $pid (keys %$players) {
+                        foreach my $pid (keys %$PLAYERS) {
                             my ($p_row, $p_col) =
-                              @{$players->{$pid}->{pos}};
+                              @{$PLAYERS->{$pid}->{pos}};
 
-                            if ($p_row eq $row && $p_col eq $col)
-                            {
-                                if ($id eq $pid) {
+                            if ($p_row eq $row && $p_col eq $col) {
+
+                                # If we are connected and dead
+                                if ($PLAYERS->{$id} && $id eq $pid) {
                                     $me = 1;
                                 }
+
                                 push @dead, $pid;
                             }
                         }
                     }
                 );
 
-                _send_message_to_all(
-                    $self,
-                    type => 'explode',
-                    id   => $id
-                );
+                _send_message_to_all($self, id => $id, type => 'explode');
 
+                # If there are any dead players
                 if (@dead) {
+
+                    # If we killed ourself
                     if ($me) {
                         $player->{frags} -= 1;
                     }
-                    else {
+
+                    # If not and connected
+                    elsif ($player) {
                         $player->{frags} += @dead;
                     }
 
+                    # Resurection
                     $ioloop->timer(
                         5,
                         sub {
@@ -207,15 +232,14 @@ sub _handle_bomb {
                             } @dead;
 
                             foreach my $player (@players) {
-                                $players->{$player->{id}}->{pos} =
+                                $PLAYERS->{$player->{id}}->{pos} =
                                   $player->{pos};
                             }
 
                             _send_message_to_all(
                                 $self,
                                 type    => 'alive',
-                                id      => $id,
-                                players => [ @players ]
+                                players => [@players]
                             );
                         }
                     );
@@ -226,12 +250,13 @@ sub _handle_bomb {
                         players => [@dead]
                     );
 
+                    # Update frags if we are connected
                     _send_message_to_all(
                         $self,
                         type  => 'frags',
                         id    => $id,
                         frags => $player->{frags}
-                    );
+                    ) if $player;
                 }
             }
         );
@@ -295,7 +320,7 @@ sub _get_random_pos {
 sub _get_player_info {
     my $cid = shift;
 
-    my $player = $players->{$cid};
+    my $player = $PLAYERS->{$cid};
     return unless $player;
 
     return (
@@ -307,9 +332,15 @@ sub _get_player_info {
 }
 
 sub _get_players {
-    return [] unless keys %$players;
+    return [] unless keys %$PLAYERS;
 
-    return [map { { _get_player_info($_) } } keys %$players];
+    return [map { { _get_player_info($_) } } keys %$PLAYERS];
+}
+
+sub _get_bombs {
+    return [] unless keys %$BOMBS;
+
+    return [map { {id => $_, pos => $BOMBS->{$_}->{pos}} } keys %$BOMBS];
 }
 
 sub _message_to_json {
@@ -333,14 +364,19 @@ sub _send_message_to_other {
 
     my $message = _message_to_json(%message);
 
-    foreach my $cid (keys %$players) {
+    foreach my $cid (keys %$PLAYERS) {
         next if $cid eq $id;
 
-        if ($players->{$cid} && $players->{$cid}->{tx}) {
-            $players->{$cid}->{tx}->send_message($message);
+        my $player = $PLAYERS->{$cid};
+
+        # If player is connected
+        if ($player && $player->{tx}) {
+            $PLAYERS->{$cid}->{tx}->send_message($message);
         }
+
+        # Cleanup disconnected player
         else {
-            delete $players->{$cid};
+            delete $PLAYERS->{$cid};
         }
     }
 }
