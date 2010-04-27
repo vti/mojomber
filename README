@@ -1,0 +1,40 @@
+Installation
+
+To check out the code and clone dependencies:
+
+git clone git://github.com/vti/mojomber.git
+cd showmetheslides
+git submodule update --init
+
+
+Running
+
+For non websocket native browsers, you need a flash policy server running (port
+843, so it needs to run as root)
+
+sudo ./mojo/examples/flash-policy-server.pl &
+
+Credits
+
+* Sebastian Riedel for Mojolicious
+  http://github.com/kraih/mojo.git
+
+* David Davis for useful websocket examples
+  http://github.com/xantus/mojo-websocket-examples
+
+* gimite for Flash workaround for non websocket native browsers
+  http://github.com/gimite/web-socket-js
+
+* JQuery team for JQuery
+  http://jquery.com
+
+* Brantley Harris for JQuery JSON plugin
+  http://code.google.com/p/jquery-json/
+
+* Chris Spooner for Monster images
+  http://www.blog.spoongraphics.co.uk/freebies/free-cute-furry-monster-icons-for-mac-pc-and-web
+
+Issues
+
+* Windows users check you firewall or antivirus packet filtering when you are
+  not able to send websocket messages, but receive them just fine
