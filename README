@@ -3,7 +3,7 @@ Installation
 To check out the code and clone dependencies:
 
 git clone git://github.com/vti/mojomber.git
-cd showmetheslides
+cd mojobomber
 git submodule update --init
 
 
