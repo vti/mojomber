@@ -31,6 +31,7 @@ my $arena = [
 websocket '/' => sub {
     my $self = shift;
     my $tx = $self->tx;
+    Mojo::IOLoop->stream($tx->connection)->timeout(0);
 
     app->log->debug('Player connected');
 
