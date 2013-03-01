@@ -31,6 +31,7 @@ my $arena = [
 websocket '/' => sub {
     my $self = shift;
     my $tx = $self->tx;
+    Mojo::IOLoop->stream($tx->connection)->timeout(0);
 
     app->log->debug('Player connected');
 
@@ -63,7 +64,7 @@ websocket '/' => sub {
         _get_player_info($cid)
     );
 
-    $self->receive_message(
+    $self->on(message =>
         sub {
             my ($self, $message) = @_;
 
@@ -84,7 +85,7 @@ websocket '/' => sub {
         }
     );
 
-    $self->finished(
+    $self->on( finish =>
         sub {
             _send_message_to_other($self, type => 'old_player', id => $cid);
 
@@ -353,7 +354,7 @@ sub _message_to_json {
 sub _send_message {
     my $self = shift;
 
-    $self->send_message(_message_to_json(@_));
+    $self->send(_message_to_json(@_));
 }
 
 sub _send_message_to_other {
@@ -371,7 +372,7 @@ sub _send_message_to_other {
 
         # If player is connected
         if ($player && $player->{tx}) {
-            $PLAYERS->{$cid}->{tx}->send_message($message);
+            $PLAYERS->{$cid}->{tx}->send($message);
         }
 
         # Cleanup disconnected player
